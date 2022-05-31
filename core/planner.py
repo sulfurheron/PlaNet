@@ -2,10 +2,11 @@ import gym
 import torch
 
 from torch import Tensor
-from torch.distributions import Distribution, MultivariateNormal
+from torch.distributions import Distribution, Normal
 from model import Model, DummyModel
 
-device = torch.device('cuda:0')
+# device = torch.device('cuda:0')
+device = torch.device('cpu')
 
 
 class CEMPlanner:
@@ -30,30 +31,29 @@ class CEMPlanner:
 
     @torch.no_grad()
     def plan(self, state: Distribution, h: Tensor) -> Tensor:
-        mu = torch.zeros((self._planning_horizon, self._act_dim)).to(device)
-        sigma = 2 * torch.ones(
-            (self._planning_horizon, self._act_dim)).to(device)
-        act_dist = MultivariateNormal(mu, torch.diag_embed(sigma ** 2))
+        mu = torch.zeros(self._planning_horizon, self._act_dim).to(device)
+        sigma = torch.ones(self._planning_horizon, self._act_dim).to(device)
+        act_dist = Normal(mu, sigma)
 
         for _ in range(self._optimization_iter):
             rewards = torch.zeros(self._candidates_per_iter, 1).to(device)
 
-            act_seqs = act_dist.sample([self._candidates_per_iter]).to(device)
-            s = state.sample(self._candidates_per_iter).to(device)
+            act_seqs = act_dist.sample((self._candidates_per_iter,)).to(device)
+            s = state.sample((self._candidates_per_iter,)).to(device)
 
             for t in range(self._planning_horizon):
-                h, s, r = self._model.step(s, act_seqs[:, t], None)
+                h, s, r = self._model.step(h, s, act_seqs[:, t])
                 rewards += r
 
             # Refit belief
-            idxes = torch.argsort(rewards.reshape(-1),
-                                  descending=True).to(device)
+            idxes = torch.argsort(
+                rewards.reshape(-1), descending=True).to(device)
             idxes = idxes[:self._num_fit_candidates]
 
             mu = act_seqs[idxes].mean(dim=0)
             sigma = (act_seqs[idxes] - mu).abs().sum(dim=0) / (len(idxes) - 1)
 
-            act_dist = MultivariateNormal(mu, torch.diag_embed(sigma ** 2))
+            act_dist = Normal(mu, sigma)
 
         print(torch.max(rewards))
         return mu[0]
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 
         def sample(self, n):
             state = torch.tensor(self.state).reshape(1, -1)
-            return state.repeat(n, 1)
+            return state.repeat(n[0], 1)
 
     def get_action(state):
         state = DummyState(state)

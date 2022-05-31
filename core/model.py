@@ -7,7 +7,8 @@ from networks import *
 from torch import Tensor
 from typing import List, Union
 
-device = torch.device('cuda:0')
+# device = torch.device('cuda:0')
+device = torch.device('cpu')
 
 
 class Model:
@@ -64,7 +65,7 @@ class DummyModel(Model):
         if position == self.min_position and velocity < 0:
             velocity = 0
 
-    def step(self, s, a, h):
+    def step(self, h, s, a):
         """Batched step function"""
         position, velocity = s[:, [0]], s[:, [1]]
         force = torch.minimum(
@@ -121,9 +122,20 @@ class RSSM(nn.Module, Model):
             hidden_size=self._HIDDEN_SIZE, latent_size=self._LATENT_SIZE,
             layer_size=self._LAYER_SIZE)
 
-    def step(self, s: Tensor, a: Tensor, get_obs=False):
-        h = self._det_state(s, a)
-        s = self._sto_state(h)
+    def step(self, h: Tensor, s: Tensor, a: Tensor, get_obs=False):
+        """Interfaces with the CEM planner. Batch step the model 1 step forward
+        for inference. 
+
+        Args:
+            h: Tensor of deterministic states with shape (B, H)
+            s: Tensor of stochastic states with shape (B, L)
+            a: Tensor of actions with shape (B, A)
+            get_obs: Boolean flag of whether or not to return the observation
+        """
+        h = self._det_state(s.unsqueeze(1), a.unsqueeze(1), h.unsqueeze(1))
+        h = h.squeeze()
+
+        s = self._sto_state(h).sample()
         r = self._rew_model(h, s).sample()
 
         if not get_obs:
