@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from torch import Tensor
 from torch.distributions import Normal
+from typing import Tuple, Union
 
 
 class DeterministicStateModel(nn.Module):
@@ -13,9 +14,13 @@ class DeterministicStateModel(nn.Module):
             input_size=latent_size + act_dim,
             hidden_size=hidden_size, batch_first=True)
 
-    def forward(self, s: Tensor, a: Tensor):
+    def forward(self, s: Tensor, a: Tensor, h_p: Union[None, Tensor] = None):
         x = torch.cat((s, a), dim=1)
-        h, _ = self.gru(x)
+
+        if h_p is not None:
+            h, _ = self.gru(x, h_p)
+        else:
+            h, _ = self.gru(x)
         return h
 
 
@@ -123,13 +128,12 @@ class Encoder(nn.Module):
         self.mu = nn.Linear(layer_size, latent_size)
         self.sigma = nn.Linear(layer_size, latent_size)
 
-    def forward(self, o: Tensor, h: Tensor) -> Normal:
+    def forward(self, o: Tensor, h: Tensor) -> Tuple[Normal, Tensor, Tensor]:
         """Runs the encoder network.
 
         Args:
             o: Batched observation with shape (-1, 64, 64, 3)
-            h: Batched deterministic model state with shape
-                (-1, HIDDEN_STATE_SIZE)
+            h: Batched deterministic model state with shape (-1, hidden_size)
         """
 
         # N H W C => N C H W
@@ -149,4 +153,4 @@ class Encoder(nn.Module):
         mu = self.mu(x)
         sigma = F.softplus(self.sigma(x)) + 1e-3
 
-        return Normal(mu, sigma)
+        return Normal(mu, sigma), mu, sigma
