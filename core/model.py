@@ -297,4 +297,21 @@ class RSSM(nn.Module, Model):
         return 0.5 * (
             (sigma_0 / sigma_1) ** 2 - 1 +
             1 / (sigma_1) * (mu_0 - mu_1) ** 2 +
-            2 * torch.log(sigma_1 / sigma_0)).sum(dim=-1).average()
+            2 * torch.log(sigma_1 / sigma_0)).sum(dim=-1).mean()
+
+
+if __name__ == '__main__':
+    B = 100
+    T = 12
+    A = 10
+
+    model = RSSM(A)
+
+    obss = torch.rand(B, T, 64, 64, 3)
+    acts = torch.rand(B, T, A)
+    rews = torch.rand(B, T, 1)
+
+    hs, ss, mus, sigmas = model.prepare_training(obss, acts)
+    model.get_obs_reconstruction_loss(hs, ss, obss)
+    model.get_rew_reconstruction_loss(hs, ss, rews)
+    model.get_complexity_loss(hs, mus, sigmas)
