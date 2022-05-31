@@ -15,7 +15,7 @@ class DeterministicStateModel(nn.Module):
             hidden_size=hidden_size, batch_first=True)
 
     def forward(self, s: Tensor, a: Tensor, h_p: Union[None, Tensor] = None):
-        x = torch.cat((s, a), dim=1)
+        x = torch.cat((s, a), dim=-1)
 
         if h_p is not None:
             h, _ = self.gru(x, h_p)

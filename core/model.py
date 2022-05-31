@@ -158,7 +158,7 @@ class RSSM(nn.Module, Model):
 
             # Sample observations
             obs_t_hat = self._obs_model(h_t, s_t).rsample()
-            loss += -0.5 * ((obs_t_hat - obs_t) ** 2).sum(dim=-1).average()
+            loss += -0.5 * ((obs_t_hat - obs_t) ** 2).sum(dim=-1).mean()
 
         return loss
 
@@ -187,7 +187,7 @@ class RSSM(nn.Module, Model):
             h_t, s_t, r_t = hs[t], ss[t], rews[t]
 
             r_hat_t = self._rew_model(h_t, s_t).rsample()
-            loss += -0.5 * ((r_hat_t - r_t) ** 2).sum(dim=-1).average()
+            loss += -0.5 * ((r_hat_t - r_t) ** 2).sum(dim=-1).mean()
 
         return loss
 
@@ -253,7 +253,7 @@ class RSSM(nn.Module, Model):
             where B is batch size, T is time step, H is hidden size, 
             L is latent size, and A is action size
         """
-        obss = obss.permute(1, 0, 2)
+        obss = obss.permute(1, 0, 2, 3, 4)
         acts = acts.permute(1, 0, 2)
 
         T, B, _ = acts.shape
@@ -275,7 +275,7 @@ class RSSM(nn.Module, Model):
 
             ss.append(s_t.unsqueeze(0))
             mus.append(mu_t.unsqueeze(0))
-            sigma_t.append(sigma_t.unsqueeze(0))
+            sigmas.append(sigma_t.unsqueeze(0))
             hs.append(h_tn)
 
         hs = hs[:-1]  # Drop the last hidden state
