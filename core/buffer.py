@@ -25,12 +25,14 @@ class Buffer:
             acts.append(act)
             rews.append(rew)
 
+        return obss, acts, rews
+
     def push(
             self, obss: List[ndarray], acts: List[ndarray], rews: List[ndarray]
     ) -> None:
         """Pushes a new observation onto the buffer"""
         obss = torch.tensor(obss)
         acts = torch.tensor(acts)
-        rews = torch.tensor(rews)
+        rews = torch.tensor(rews).reshape(-1, 1)
 
         self.buffer.append((obss, acts, rews))
