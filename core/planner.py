@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 from torch.distributions import Distribution, Normal
 from model import Model, DummyModel
+from wrappers import ActionRepeatWrapper
 
 # device = torch.device('cuda:0')
 device = torch.device('cpu')
@@ -32,7 +33,7 @@ class CEMPlanner:
     @torch.no_grad()
     def plan(self, state: Distribution, h: Tensor) -> Tensor:
         mu = torch.zeros(self._planning_horizon, self._act_dim).to(device)
-        sigma = torch.ones(self._planning_horizon, self._act_dim).to(device)
+        sigma = 2*torch.ones(self._planning_horizon, self._act_dim).to(device)
         act_dist = Normal(mu, sigma)
 
         for _ in range(self._optimization_iter):
@@ -60,22 +61,23 @@ class CEMPlanner:
 
 
 if __name__ == '__main__':
-    model = DummyModel()
-    planner = CEMPlanner(model, 1, 1000, 10, 1000, 100)
+    model = DummyModel(action_repeat=2)
+    planner = CEMPlanner(model, 1, 500, 10, 1000, 100)
 
     class DummyState:
         def __init__(self, s=None) -> None:
             self.state = s if s is not None else [0, 0]
 
         def sample(self, n):
-            state = torch.tensor(self.state).reshape(1, -1)
+            state = torch.tensor(
+                self.state, dtype=torch.float32).reshape(1, -1)
             return state.repeat(n[0], 1)
 
     def get_action(state):
         state = DummyState(state)
         return planner.plan(state, None)
 
-    env = gym.make('MountainCarContinuous-v0')
+    env = ActionRepeatWrapper(gym.make('MountainCarContinuous-v0'), 2)
 
     state = env.reset()
     done = False

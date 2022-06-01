@@ -25,7 +25,7 @@ class Model:
 class DummyModel(Model):
     """Dummy model for testing - Mimics a gym environment."""
 
-    def __init__(self) -> None:
+    def __init__(self, action_repeat=1) -> None:
         self.min_action = torch.tensor([-1.0]).to(device)
         self.max_action = torch.tensor([1.0]).to(device)
         self.max_speed = 0.07
@@ -48,6 +48,8 @@ class DummyModel(Model):
         self.min_position = torch.tensor([-1.2]).to(device)
         self.max_position = torch.tensor([0.6]).to(device)
 
+        self.action_repeat = action_repeat
+
     def _step(self, s: Tensor, a: Tensor, h):
         position, velocity = s[0], s[1]
         force = min(max(a[0], self.min_action), self.max_action)
@@ -67,30 +69,31 @@ class DummyModel(Model):
 
     def step(self, h, s, a):
         """Batched step function"""
-        position, velocity = s[:, [0]], s[:, [1]]
-        force = torch.minimum(
-            torch.maximum(a, self.min_action), self.max_action)
+        for _ in range(self.action_repeat):
+            position, velocity = s[:, [0]], s[:, [1]]
+            force = torch.minimum(
+                torch.maximum(a, self.min_action), self.max_action)
 
-        velocity += force * self.power - 0.0025 * torch.cos(3 * position)
-        velocity = torch.minimum(velocity, self.max_speed)
-        velocity = torch.maximum(velocity, -self.max_speed)
+            velocity += force * self.power - 0.0025 * torch.cos(3 * position)
+            velocity = torch.minimum(velocity, self.max_speed)
+            velocity = torch.maximum(velocity, -self.max_speed)
 
-        position += velocity
-        position = torch.minimum(position, self.max_position)
-        position = torch.maximum(position, self.min_position)
+            position += velocity
+            position = torch.minimum(position, self.max_position)
+            position = torch.maximum(position, self.min_position)
 
-        velocity = torch.where(
-            torch.logical_and(position == self.min_position, velocity < 0),
-            torch.zeros(velocity.shape).to(device), velocity)
+            velocity = torch.where(
+                torch.logical_and(position == self.min_position, velocity < 0),
+                torch.zeros(velocity.shape).to(device), velocity)
 
-        # Convert a possible numpy bool to a Python bool.
-        done = torch.logical_and(
-            position >= self.goal_position, velocity >= self.goal_velocity)
+            # Convert a possible numpy bool to a Python bool.
+            done = torch.logical_and(
+                position >= self.goal_position, velocity >= self.goal_velocity)
 
-        reward = -(a ** 2) * 0.1 + done * 100
-        position = position.reshape(-1, 1)
-        velocity = velocity.reshape(-1, 1)
-        s = torch.cat((position, velocity), dim=1)
+            reward = -(a ** 2) * 0.1 + done * 100
+            position = position.reshape(-1, 1)
+            velocity = velocity.reshape(-1, 1)
+            s = torch.cat((position, velocity), dim=1)
         return h, s, reward
 
 
@@ -145,13 +148,14 @@ class RSSM(nn.Module, Model):
         return h, s, r, o
 
     def get_obs_reconstruction_loss(
-            self, hs: Tensor, ss: Tensor, obss: Tensor) -> Tensor:
+            self, hs: Tensor, ss: Tensor, obss: Tensor, mask: Tensor) -> Tensor:
         """Computes the differentiable reconstruction loss of observations
 
         Args:
             hs: Tensor of hidden states with shape (B, T, H) 
             ss: Tensor of states with shape (B, T, L)
             obss: Tensor of observations with shape (B, T, 64, 64, 3)
+            mask: Tensor indicating validity with shape (B, T, 1)
 
             where B is batch size, T is time step, H is hidden size, and
             L is latent size
@@ -161,27 +165,33 @@ class RSSM(nn.Module, Model):
         hs = hs.permute(1, 0, 2)
         ss = ss.permute(1, 0, 2)
         obss = obss.permute(1, 0, 2, 3, 4)
+        mask = mask.permute(1, 0, 2)
 
         loss = 0
         T = len(hs)
 
         for t in range(T):
-            h_t, s_t, obs_t = hs[t], ss[t], obss[t]
+            h_t, s_t, obs_t, m_t = hs[t], ss[t], obss[t], mask[t]
 
             # Sample observations
             obs_t_hat = self._obs_model(h_t, s_t).rsample()
-            loss += -0.5 * ((obs_t_hat - obs_t) ** 2).sum(dim=-1).mean()
+
+            loss_t = -0.5 * ((obs_t_hat - obs_t) ** 2).sum()
+            loss_t /= m_t.sum()
+
+            loss += loss_t
 
         return loss
 
     def get_rew_reconstruction_loss(
-            self, hs: Tensor, ss: Tensor, rews: Tensor) -> Tensor:
+            self, hs: Tensor, ss: Tensor, rews: Tensor, mask: Tensor) -> Tensor:
         """Computes the differentiable reconstruction loss of rewards
 
         Args:
             hs: Tensor of hidden states with shape (B, T, H) 
             ss: Tensor of states with shape (B, T, L)
             rews: Tensor of rewards with shape (B, T, 1)
+            mask: Tensor indicating validity with shape (B, T, 1)
 
             where B is batch size, T is time step, H is hidden size, and
             L is latent size
@@ -191,20 +201,27 @@ class RSSM(nn.Module, Model):
         hs = hs.permute(1, 0, 2)
         ss = ss.permute(1, 0, 2)
         rews = rews.permute(1, 0, 2)
+        mask = mask.permute(1, 0, 2)
 
         loss = 0
         T = len(hs)
 
         for t in range(T):
-            h_t, s_t, r_t = hs[t], ss[t], rews[t]
+            h_t, s_t, r_t, m_t = hs[t], ss[t], rews[t], mask[t]
 
+            # Sample rewards
             r_hat_t = self._rew_model(h_t, s_t).rsample()
-            loss += -0.5 * ((r_hat_t - r_t) ** 2).sum(dim=-1).mean()
+
+            loss_t = -0.5 * ((r_hat_t - r_t) ** 2).sum()
+            loss_t /= m_t.sum()
+
+            loss += loss_t
 
         return loss
 
     def get_complexity_loss(
-            self, hs: Tensor, mus: Tensor, sigmas: Tensor) -> Tensor:
+            self, hs: Tensor, mus: Tensor, sigmas: Tensor, mask: Tensor
+    ) -> Tensor:
         """Computes the differentiable complexity loss
 
         Args:
@@ -213,6 +230,7 @@ class RSSM(nn.Module, Model):
                 encoder with shape (B, T, L)
             sigmas: Tensors of the standard deviations of the normal
                 distributions computed by the encoder with shape (B, T, L)
+            mask: Tensor indicating validity with shape (B, T, 1)
 
             where B is batch size, T is time step, H is hidden size, and
             L is latent size
@@ -227,8 +245,8 @@ class RSSM(nn.Module, Model):
         T = len(hs)
 
         for t in range(T):
-            h_t, mu_t, sigma_t = hs[t], mus[t], sigmas[t]
-            loss += RSSM._KL_div(mu_t, sigma_t, self._sto_state(h_t))
+            h_t, mu_t, sigma_t, m_t = hs[t], mus[t], sigmas[t]
+            loss += RSSM._KL_div(mu_t, sigma_t, self._sto_state(h_t), m_t)
 
         return loss
 
@@ -300,16 +318,16 @@ class RSSM(nn.Module, Model):
         return hs, ss, mus, sigmas
 
     @staticmethod
-    def _KL_div(mu_p: Tensor, sigma_p: Tensor, q: Normal):
-        """Computes KL(p||q) where both p and q are Gaussians."""
+    def _KL_div(mu_p: Tensor, sigma_p: Tensor, q: Normal, m_t: Tensor):
+        """Computes masked KL(p||q) where both p and q are Gaussians."""
 
-        mu_0, sigma_0 = mu_p, sigma_p
-        mu_1, sigma_1 = q.loc, q.scale
+        mu_0, sigma_0 = mu_p * m_t, sigma_p * m_t
+        mu_1, sigma_1 = q.loc * m_t, q.scale * m_t
 
         return 0.5 * (
             (sigma_0 / sigma_1) ** 2 - 1 +
             1 / (sigma_1) * (mu_0 - mu_1) ** 2 +
-            2 * torch.log(sigma_1 / sigma_0)).sum(dim=-1).mean()
+            2 * torch.log(sigma_1 / sigma_0)).sum() / m_t.sum()
 
 
 if __name__ == '__main__':
