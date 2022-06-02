@@ -1,3 +1,5 @@
+from typing import Union
+
 import gym
 import torch
 
@@ -32,15 +34,26 @@ class CEMPlanner:
 
     @torch.no_grad()
     def plan(self, state: Distribution, h: Tensor) -> Tensor:
+        """Plans future actions from a given stochastic state (distribution) and
+        a deterministic state.
+
+        Args:
+            state: Distribution of stochastic states where each sample produces
+                a tensor of shape (1, latent_size)
+            h: Tensor of deterministic state with shape (1, hidden_size)
+        """
         mu = torch.zeros(self._planning_horizon, self._act_dim).to(device)
-        sigma = 2*torch.ones(self._planning_horizon, self._act_dim).to(device)
+        sigma = torch.ones(self._planning_horizon, self._act_dim).to(device)
         act_dist = Normal(mu, sigma)
+
+        # Massage h into shape (B, H)
+        h = h.repeat(self._candidates_per_iter, 1)
 
         for _ in range(self._optimization_iter):
             rewards = torch.zeros(self._candidates_per_iter, 1).to(device)
 
             act_seqs = act_dist.sample((self._candidates_per_iter,)).to(device)
-            s = state.sample((self._candidates_per_iter,)).to(device)
+            s = state.sample((self._candidates_per_iter,)).to(device).squeeze()
 
             for t in range(self._planning_horizon):
                 h, s, r = self._model.step(h, s, act_seqs[:, t])
@@ -56,7 +69,6 @@ class CEMPlanner:
 
             act_dist = Normal(mu, sigma)
 
-        print(torch.max(rewards))
         return mu[0]
 
 

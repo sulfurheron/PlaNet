@@ -100,14 +100,13 @@ class DummyModel(Model):
 class RSSM(nn.Module, Model):
     """Encapsualtes the RSSM model built by the agent."""
 
-    def __init__(self, act_dim: int) -> None:
+    def __init__(self, act_dim: int, latent_size, layer_size, hidden_size):
         """Initializes all the networks of RSSM."""
         super(RSSM, self).__init__()
 
-        # Use the parameters from the appendix
-        self._LATENT_SIZE = 30
-        self._LAYER_SIZE = 200
-        self._HIDDEN_SIZE = 200
+        self._LATENT_SIZE = latent_size
+        self._LAYER_SIZE = layer_size
+        self._HIDDEN_SIZE = hidden_size
 
         # Initialize all networks
         self._det_state = DeterministicStateModel(
@@ -135,7 +134,7 @@ class RSSM(nn.Module, Model):
             a: Tensor of actions with shape (B, A)
             get_obs: Boolean flag of whether or not to return the observation
         """
-        h = self._det_state(s.unsqueeze(1), a.unsqueeze(1), h.unsqueeze(1))
+        h = self._det_state(s.unsqueeze(1), a.unsqueeze(1), h.unsqueeze(0))
         h = h.squeeze()
 
         s = self._sto_state(h).sample()
@@ -240,12 +239,18 @@ class RSSM(nn.Module, Model):
         hs = hs.permute(1, 0, 2)
         mus = mus.permute(1, 0, 2)
         sigmas = sigmas.permute(1, 0, 2)
+        mask = mask.permute(1, 0, 2)
 
         loss = 0
         T = len(hs)
 
+        assert not torch.isnan(hs).any()
+        assert not torch.isnan(mus).any()
+        assert not torch.isnan(sigmas).any()
+        assert not torch.isnan(mask).any()
+
         for t in range(T):
-            h_t, mu_t, sigma_t, m_t = hs[t], mus[t], sigmas[t]
+            h_t, mu_t, sigma_t, m_t = hs[t], mus[t], sigmas[t], mask[t]
             loss += RSSM._KL_div(mu_t, sigma_t, self._sto_state(h_t), m_t)
 
         return loss
@@ -261,9 +266,9 @@ class RSSM(nn.Module, Model):
         by the RNN. The initial hidden state is 0.
 
              a_1     a_2
-                \       \ 
+               \\       \\ 
         h_0      h_1     h_2
-            \   /   \   /   \
+           \\   /  \\   /  \\
              s_0     s_1     ...
             /       /       / 
         o_0      o_1     ...
@@ -318,7 +323,9 @@ class RSSM(nn.Module, Model):
         return hs, ss, mus, sigmas
 
     @staticmethod
-    def _KL_div(mu_p: Tensor, sigma_p: Tensor, q: Normal, m_t: Tensor):
+    def _KL_div(
+            mu_p: Tensor, sigma_p: Tensor, q: Normal, m_t: Tensor
+    ) -> Tensor:
         """Computes masked KL(p||q) where both p and q are Gaussians."""
 
         mu_0, sigma_0 = mu_p * m_t, sigma_p * m_t

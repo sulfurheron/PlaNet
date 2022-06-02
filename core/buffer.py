@@ -16,7 +16,11 @@ class Buffer:
     def sample_sequence(self, batch_size: int) -> Union[
             List[Tensor], List[Tensor], List[Tensor]]:
         """Samples a consecutive sequence of observations."""
-        idxes = np.random.choice(len(self.buffer), batch_size, False)
+        if len(self.buffer) <= batch_size:
+            idxes = np.arange(len(self.buffer))
+        else:
+            idxes = np.random.choice(len(self.buffer), batch_size, False)
+
         obss, acts, rews = [], [], []
 
         for idx in idxes:
@@ -28,11 +32,15 @@ class Buffer:
         return obss, acts, rews
 
     def push(
-            self, obss: List[ndarray], acts: List[ndarray], rews: List[ndarray]
+            self, obss: List[Tensor], acts: List[Tensor], rews: List[Tensor]
     ) -> None:
         """Pushes a new observation onto the buffer"""
-        obss = torch.tensor(obss)
-        acts = torch.tensor(acts)
-        rews = torch.tensor(rews).reshape(-1, 1)
+        obss = torch.stack(obss)
+        acts = torch.stack(acts)
+        rews = torch.stack(rews).reshape(-1, 1)
+
+        assert len(obss.shape) == 4
+        assert len(acts.shape) == 2
+        assert len(rews.shape) == 2
 
         self.buffer.append((obss, acts, rews))

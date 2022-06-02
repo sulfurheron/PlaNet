@@ -35,8 +35,11 @@ class StochasticStateModel(nn.Module):
         self.sigma = nn.Linear(layer_size, latent_size)
 
     def forward(self, h: Tensor) -> Normal:
+        assert not torch.isnan(h).any()
         h = F.relu(self.layer1(h))
+        assert not torch.isnan(h).any()
         h = F.relu(self.layer2(h))
+        assert not torch.isnan(h).any()
 
         mu = self.mu(h)
         sigma = F.softplus(self.sigma(h)) + 1e-3
