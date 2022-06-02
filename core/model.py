@@ -139,12 +139,12 @@ class RSSM(nn.Module, Model):
         h = h.squeeze()
 
         s = self._sto_state(h).sample()
-        r = self._rew_model(h, s).sample()
+        r = self._rew_model(h, s).loc
 
         if not get_obs:
             return h, s, r
 
-        o = self._obs_model(h, s).sample()
+        o = self._obs_model(h, s).loc
         return h, s, r, o
 
     def get_obs_reconstruction_loss(
@@ -174,7 +174,7 @@ class RSSM(nn.Module, Model):
             h_t, s_t, obs_t, m_t = hs[t], ss[t], obss[t], mask[t]
 
             # Sample observations
-            obs_t_hat = self._obs_model(h_t, s_t).rsample()
+            obs_t_hat = self._obs_model(h_t, s_t).loc
 
             loss_t = -0.5 * ((obs_t_hat - obs_t) ** 2).mean(dim=-1).sum()
             loss_t /= m_t.sum()
@@ -210,7 +210,7 @@ class RSSM(nn.Module, Model):
             h_t, s_t, r_t, m_t = hs[t], ss[t], rews[t], mask[t]
 
             # Sample rewards
-            r_hat_t = self._rew_model(h_t, s_t).rsample()
+            r_hat_t = self._rew_model(h_t, s_t).loc
 
             loss_t = -0.5 * ((r_hat_t - r_t) ** 2).sum()
             loss_t /= m_t.sum()
