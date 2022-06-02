@@ -8,8 +8,7 @@ from torch.distributions import Distribution, Normal
 from model import Model, DummyModel
 from wrappers import ActionRepeatWrapper
 
-# device = torch.device('cuda:0')
-device = torch.device('cpu')
+from tqdm import trange
 
 
 class CEMPlanner:
@@ -23,6 +22,7 @@ class CEMPlanner:
             optimization_iter: int,
             candidates_per_iter: int,
             num_fit_candidates: int,
+            device,
     ) -> None:
 
         self._model = model
@@ -31,6 +31,8 @@ class CEMPlanner:
         self._optimization_iter = optimization_iter
         self._candidates_per_iter = candidates_per_iter
         self._num_fit_candidates = num_fit_candidates
+
+        self.device = device
 
     @torch.no_grad()
     def plan(self, state: Distribution, h: Tensor) -> Tensor:
@@ -42,18 +44,25 @@ class CEMPlanner:
                 a tensor of shape (1, latent_size)
             h: Tensor of deterministic state with shape (1, hidden_size)
         """
-        mu = torch.zeros(self._planning_horizon, self._act_dim).to(device)
-        sigma = torch.ones(self._planning_horizon, self._act_dim).to(device)
+        mu = torch.zeros(
+            self._planning_horizon, self._act_dim).to(self.device)
+        sigma = torch.ones(
+            self._planning_horizon, self._act_dim).to(self.device)
         act_dist = Normal(mu, sigma)
 
         # Massage h into shape (B, H)
         h = h.repeat(self._candidates_per_iter, 1)
 
+        # for _ in trange(
+        #         self._optimization_iter, desc='Optimization',
+        #         position=2, leave=False):
         for _ in range(self._optimization_iter):
-            rewards = torch.zeros(self._candidates_per_iter, 1).to(device)
+            rewards = torch.zeros(self._candidates_per_iter, 1).to(self.device)
 
-            act_seqs = act_dist.sample((self._candidates_per_iter,)).to(device)
-            s = state.sample((self._candidates_per_iter,)).to(device).squeeze()
+            act_seqs = act_dist.sample(
+                (self._candidates_per_iter,)).to(self.device)
+            s = state.sample(
+                (self._candidates_per_iter,)).to(self.device).squeeze()
 
             for t in range(self._planning_horizon):
                 h, s, r = self._model.step(h, s, act_seqs[:, t])
@@ -61,7 +70,7 @@ class CEMPlanner:
 
             # Refit belief
             idxes = torch.argsort(
-                rewards.reshape(-1), descending=True).to(device)
+                rewards.reshape(-1), descending=True).to(self.device)
             idxes = idxes[:self._num_fit_candidates]
 
             mu = act_seqs[idxes].mean(dim=0)

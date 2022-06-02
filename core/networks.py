@@ -69,7 +69,7 @@ class ObservationModel(nn.Module):
 
         # N C H W => N H W C
         x = x.permute(0, 2, 3, 1)
-        return Normal(x, torch.ones(x.shape))
+        return Normal(x, torch.ones_like(x))
 
 
 class RewardModel(nn.Module):
@@ -86,7 +86,7 @@ class RewardModel(nn.Module):
         x = F.relu(self.layer2(x))
 
         x = self.output_layer(x)
-        return Normal(x, torch.ones(x.shape))
+        return Normal(x, torch.ones_like(x))
 
 
 class Dense(nn.Module):

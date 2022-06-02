@@ -7,9 +7,6 @@ from networks import *
 from torch import Tensor
 from typing import List, Union
 
-# device = torch.device('cuda:0')
-device = torch.device('cpu')
-
 
 class Model:
     """Abstract world model."""
@@ -100,7 +97,8 @@ class DummyModel(Model):
 class RSSM(nn.Module, Model):
     """Encapsualtes the RSSM model built by the agent."""
 
-    def __init__(self, act_dim: int, latent_size, layer_size, hidden_size):
+    def __init__(
+            self, act_dim: int, latent_size, layer_size, hidden_size, device):
         """Initializes all the networks of RSSM."""
         super(RSSM, self).__init__()
 
@@ -123,6 +121,9 @@ class RSSM(nn.Module, Model):
         self._encoder = Encoder(
             hidden_size=self._HIDDEN_SIZE, latent_size=self._LATENT_SIZE,
             layer_size=self._LAYER_SIZE)
+
+        self.device = device
+        self.to(device)
 
     def step(self, h: Tensor, s: Tensor, a: Tensor, get_obs=False):
         """Interfaces with the CEM planner. Batch step the model 1 step forward
@@ -175,7 +176,7 @@ class RSSM(nn.Module, Model):
             # Sample observations
             obs_t_hat = self._obs_model(h_t, s_t).rsample()
 
-            loss_t = -0.5 * ((obs_t_hat - obs_t) ** 2).sum()
+            loss_t = -0.5 * ((obs_t_hat - obs_t) ** 2).mean(dim=-1).sum()
             loss_t /= m_t.sum()
 
             loss += loss_t
@@ -295,7 +296,7 @@ class RSSM(nn.Module, Model):
         H = self._HIDDEN_SIZE
 
         hs, ss, mus, sigmas = [], [], [], []
-        hs.append(torch.zeros(B, 1, H))
+        hs.append(torch.zeros(B, 1, H).to(self.device))
 
         for t in range(T):
             obs_t, act_t = obss[t], acts[t]  # Shape (B, L) and (B, A) resp.
