@@ -2,12 +2,15 @@ import random
 import torch
 import gym
 
-from torch import R, Tensor
+from torch import Tensor
+from torch.distributions import Normal
 from torch.nn.utils.rnn import pad_sequence
 
 from model import RSSM
 from buffer import Buffer
 from planner import CEMPlanner
+
+from tqdm import trange
 
 
 class Agent:
@@ -16,18 +19,25 @@ class Agent:
     def __init__(
             self, env: gym.Env, seed_ep=5, batch_size=50, chunk_len=50, lr=1e-3,
             planning_horizon=12, optimization_iter=10, candidates_per_iter=1000,
-            num_fit_candidates=100
+            num_fit_candidates=100, latent_size=30, layer_size=200,
+            hidden_size=200
     ) -> None:
         self.env = env
         self.batch_size = batch_size
         self.chunk_len = chunk_len
 
-        act_dim = env.action_space.shape[0]
+        self.latent_size = latent_size
+        self.layer_size = layer_size
+        self.hidden_size = hidden_size
 
-        self.model = RSSM(act_dim)
+        self.candidates_per_iter = candidates_per_iter
+
+        self.act_dim = env.action_space.shape[0]
+
+        self.model = RSSM(self.act_dim, latent_size, layer_size, hidden_size)
         self.opt = torch.optim.Adam(self.model.parameters(), lr, eps=1e-4)
         self.planner = CEMPlanner(
-            self.model, act_dim, planning_horizon, optimization_iter,
+            self.model, self.act_dim, planning_horizon, optimization_iter,
             candidates_per_iter, num_fit_candidates)
 
         # Initialize random seed episodes
@@ -42,9 +52,9 @@ class Agent:
                 act = self.env.action_space.sample()
                 nobs, rew, done, _ = self.env.step(act)
 
-                obss.append(obs)
-                acts.append(act)
-                rews.append(rew)
+                obss.append(torch.tensor(obs))
+                acts.append(torch.tensor(act))
+                rews.append(torch.tensor(rew))
 
                 obs = nobs
 
@@ -114,9 +124,42 @@ class Agent:
             ss[i] = _ss[i, s:e, :]
             mus[i] = _mus[i, s:e, :]
             sigmas[i] = _sigmas[i, s:e, :]
+            assert (sigmas[i] == 0).sum() == 0
 
         return obss, acts, rews, hs, ss, mus, sigmas, mask
 
     def collect_data(self):
         """Collects data using the current model"""
-        pass
+
+        # Exploration noise
+        exp_noise = Normal(
+            torch.zeros(self.act_dim), 0.3 * torch.ones(self.act_dim))
+
+        obss, acts, rews = [], [], []
+        obss.append(torch.tensor(self.env.reset()))
+        h = torch.zeros(1, self.hidden_size)
+
+        done = False
+        while not done:
+            obs = obss[-1].unsqueeze(0)  # (B=1, 64, 64, 3)
+            dist, *_ = self.model._encoder(obs, h)
+
+            mu = self.planner.plan(dist, h)
+            mu += exp_noise.sample()
+            acts.append(mu)
+
+            n_obs, rew, done, _ = self.env.step(mu.detach().cpu().numpy())
+            print(rew)
+            obss.append(torch.tensor(n_obs))
+            rews.append(torch.tensor(rew))
+
+            s = dist.sample().unsqueeze(1)  # (B, T, L)
+            a = mu.reshape(1, 1, -1)  # (B, T, A)
+
+            h = self.model._det_state(s, a, h.unsqueeze(0)).squeeze(1)
+
+        # obss = torch.stack(obss[:-1])  # Pop the done state
+        # acts = torch.stack(acts)
+        # rews = torch.stack(rews)
+
+        self.buffer.push(obss[:-1], acts, rews)
