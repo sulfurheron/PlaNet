@@ -14,12 +14,9 @@ class Buffer:
         self.buffer = []
 
     def sample_sequence(self, batch_size: int) -> Union[
-            List[Tensor], List[Tensor], List[Tensor]]:
+        List[Tensor], List[Tensor], List[Tensor]]:
         """Samples a consecutive sequence of observations."""
-        if len(self.buffer) <= batch_size:
-            idxes = np.arange(len(self.buffer))
-        else:
-            idxes = np.random.choice(len(self.buffer), batch_size, False)
+        idxes = np.random.choice(len(self.buffer), batch_size, True)
 
         obss, acts, rews = [], [], []
 
