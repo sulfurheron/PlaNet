@@ -1,6 +1,7 @@
 import random
 import torch
 import gym
+import numpy as np
 
 from torch import Tensor
 from torch.distributions import Normal
@@ -79,6 +80,7 @@ class Agent:
         self.tick += 1
 
         self.opt.zero_grad()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1000.0)
         loss *= -1  # Turn gradient descent into gradient ascent
         loss.backward()
         self.opt.step()
@@ -147,7 +149,12 @@ class Agent:
 
     def evaluate(self, num_repeats=5):
         """Evaluate the current agent"""
-        pass
+        rewards = []
+        for _ in trange(5, desc='Evaluating', leave=False):
+            *_, rews = self._inference(lambda x: x)
+            rewards.append(float(torch.tensor(rews).sum()))
+
+        self.writer.add_scalar('Rewards/test', np.mean(rewards), self.tick)
 
     def collect_data(self):
         """Collects data using the current model"""
@@ -157,6 +164,10 @@ class Agent:
             torch.zeros(self.act_dim, device=self.device),
             0.3 * torch.ones(self.act_dim, device=self.device))
 
+        obss, acts, rews = self._inference(lambda x: x + exp_noise.sample())
+        self.buffer.push(obss[:-1], acts, rews)
+
+    def _inference(self, callback):
         # CPU device
         cpu = torch.device('cpu')
 
@@ -170,7 +181,7 @@ class Agent:
             dist, *_ = self.model._encoder(obs, h)
 
             mu = self.planner.plan(dist, h)
-            mu += exp_noise.sample()
+            mu = callback(mu)
             acts.append(mu.to(cpu))  # Do not store GPU arrays in buffer
 
             n_obs, rew, done, _ = self.env.step(mu.detach().cpu().numpy())
@@ -182,8 +193,4 @@ class Agent:
 
             h = self.model._det_state(s, a, h.unsqueeze(0)).squeeze(1)
 
-        # obss = torch.stack(obss[:-1])  # Pop the done state
-        # acts = torch.stack(acts)
-        # rews = torch.stack(rews)
-
-        self.buffer.push(obss[:-1], acts, rews)
+        return obss[:-1], acts, rews
