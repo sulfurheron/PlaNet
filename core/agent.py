@@ -14,6 +14,7 @@ from planner import CEMPlanner
 
 from tqdm import trange
 
+
 class Agent:
     """An RL Agent"""
 
@@ -124,7 +125,7 @@ class Agent:
         ss = batched_zeros(L)
         mus = batched_zeros(L)
         sigmas = batched_zeros(L)
-        mask = 1-batched_zeros(1)
+        mask = 1 - batched_zeros(1)
 
         ranges = []  # Range of chunks to keep
         for i, seq_len in enumerate(seq_lengths):
@@ -132,7 +133,7 @@ class Agent:
                 ranges.append([0, self.chunk_len])
                 mask[i, seq_len:, :] = 0
             else:
-                start_idx = random.randint(0, seq_len-self.chunk_len)
+                start_idx = random.randint(0, seq_len - self.chunk_len)
                 ranges.append([start_idx, start_idx + self.chunk_len])
 
         for i, (s, e) in enumerate(ranges):
@@ -166,6 +167,9 @@ class Agent:
 
         obss, acts, rews = self._inference(lambda x: x + exp_noise.sample())
         self.buffer.push(obss[:-1], acts, rews)
+
+        self.writer.add_scalar(
+            'Rewards/train', float(torch.tensor(rews).sum()), self.tick)
 
     def _inference(self, callback):
         # CPU device
