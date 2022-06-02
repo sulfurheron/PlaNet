@@ -332,10 +332,13 @@ class RSSM(nn.Module, Model):
         mu_0, sigma_0 = mu_p * m_t, sigma_p * m_t
         mu_1, sigma_1 = q.loc * m_t, q.scale * m_t
 
-        return 0.5 * (
+        res = 0.5 * (
             (sigma_0 / sigma_1) ** 2 - 1 +
             1 / (sigma_1) * (mu_0 - mu_1) ** 2 +
-            2 * torch.log(sigma_1 / sigma_0)).sum() / m_t.sum()
+            2 * torch.log(sigma_1 / sigma_0))
+
+        res = torch.nan_to_num(res).sum() / m_t.sum()
+        return res
 
 
 if __name__ == '__main__':
