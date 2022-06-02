@@ -1,6 +1,8 @@
-import gym
+import cv2
+import numpy as np
 
 from gym import Wrapper, Env
+from typing import Union, Tuple
 
 
 class ActionRepeatWrapper(Wrapper):
@@ -23,3 +25,27 @@ class ActionRepeatWrapper(Wrapper):
                 break
 
         return state, reward, done, info
+
+
+class ImageWrapper(Wrapper):
+    def __init__(self, env: Env, img_width=64, img_height=64, bit_depth=5):
+        super().__init__(env)
+        self.img_w = img_width
+        self.img_h = img_height
+        self._reduct = 1 << (8-bit_depth)
+
+    def _get_image(self):
+        state = self.env.render('rgb_array')
+        state = cv2.resize(state, (self.img_w, self.img_h))
+
+        state = state // self._reduct * self._reduct  # Reduce bit depth
+        state = np.array(state / 255., dtype=np.float32)
+        return state
+
+    def step(self, action):
+        _, reward, done, info = self.env.step(action)
+        return self._get_image(), reward, done, info
+
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
+        return self._get_image()
