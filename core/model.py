@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 import torch.nn as nn
 import math
@@ -168,7 +170,7 @@ class RSSM(nn.Module, Model):
         mask = mask.permute(1, 0, 2)
 
         loss = 0
-        T = len(hs)
+        T = hs.shape[0]
 
         for t in range(T):
             h_t, s_t, obs_t, m_t = hs[t], ss[t], obss[t], mask[t]
@@ -204,7 +206,7 @@ class RSSM(nn.Module, Model):
         mask = mask.permute(1, 0, 2)
 
         loss = 0
-        T = len(hs)
+        T = hs.shape[0]
 
         for t in range(T):
             h_t, s_t, r_t, m_t = hs[t], ss[t], rews[t], mask[t]
@@ -243,7 +245,7 @@ class RSSM(nn.Module, Model):
         mask = mask.permute(1, 0, 2)
 
         loss = 0
-        T = len(hs)
+        T = hs.shape[0]
 
         assert not torch.isnan(hs).any()
         assert not torch.isnan(mus).any()
@@ -333,9 +335,9 @@ class RSSM(nn.Module, Model):
         mu_1, sigma_1 = q.loc * m_t, q.scale * m_t
 
         res = 0.5 * (
-            (sigma_0 / sigma_1) ** 2 - 1 +
-            1 / (sigma_1) * (mu_0 - mu_1) ** 2 +
-            2 * torch.log(sigma_1 / sigma_0))
+                (sigma_0 / sigma_1) ** 2 - 1 +
+                1 / (sigma_1) * (mu_0 - mu_1) ** 2 +
+                2 * torch.log(sigma_1 / sigma_0))
 
         res = torch.nan_to_num(res).sum() / m_t.sum()
         return res
