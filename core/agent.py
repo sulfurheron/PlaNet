@@ -166,7 +166,7 @@ class Agent:
             0.3 * torch.ones(self.act_dim, device=self.device))
 
         obss, acts, rews = self._inference(lambda x: x + exp_noise.sample())
-        self.buffer.push(obss[:-1], acts, rews)
+        self.buffer.push(obss, acts, rews)
 
         self.writer.add_scalar(
             'Rewards/train', float(torch.tensor(rews).sum()), self.tick)
