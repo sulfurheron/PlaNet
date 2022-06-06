@@ -104,7 +104,8 @@ class Agent:
             self._sample_and_prepare_chunks()
 
         loss = self.traced_model.get_obs_reconstruction_loss(hs, ss, obss, mask)
-        loss += self.traced_model.get_rew_reconstruction_loss(hs, ss, rews, mask)
+        loss += self.traced_model.get_rew_reconstruction_loss(
+            hs, ss, rews, mask)
         loss -= 2 * self.traced_model.get_complexity_loss(hs, mus, sigmas, mask)
 
         self.writer.add_scalar('Loss/train', -float(loss), self.tick)
@@ -125,7 +126,7 @@ class Agent:
         """
 
         _obss, _acts, _rews = self.buffer.sample_sequence(self.batch_size)
-        seq_lengths = [len(obs) for obs in _obss]
+        seq_lengths = torch.tensor([len(obs) for obs in _obss]).reshape(-1, 1)
 
         _obss = pad_sequence(_obss, batch_first=True).to(self.device)
         _acts = pad_sequence(_acts, batch_first=True).to(self.device)
@@ -141,40 +142,24 @@ class Agent:
         _acts = _acts.to(cpu)
         _rews = _rews.to(cpu)
 
-        H, L, A = _hs.shape[-1], _ss.shape[-1], _acts.shape[-1]
+        padded_len = _obss.shape[1]
+        start = random.randint(0, padded_len - self.chunk_len)
+        end = start + self.chunk_len
 
-        def batched_zeros(*args):
-            return torch.zeros(
-                self.batch_size, self.chunk_len, *args).to(self.device)
+        def select(tensor):
+            return tensor[:, start:end].to(self.device)
 
-        # Prepare tensors for return
-        obss = batched_zeros(64, 64, 3)
-        acts = batched_zeros(A)
-        rews = batched_zeros(1)
-        hs = batched_zeros(H)
-        ss = batched_zeros(L)
-        mus = batched_zeros(L)
-        sigmas = batched_zeros(L)
-        mask = 1 - batched_zeros(1)
+        obss = select(_obss)
+        acts = select(_acts)
+        rews = select(_rews)
+        hs = select(_hs)
+        ss = select(_ss)
+        mus = select(_mus)
+        sigmas = select(_sigmas)
 
-        ranges = []  # Range of chunks to keep
-        for i, seq_len in enumerate(seq_lengths):
-            if seq_len <= self.chunk_len:
-                ranges.append([0, self.chunk_len])
-                mask[i, seq_len:, :] = 0
-            else:
-                start_idx = random.randint(0, seq_len - self.chunk_len)
-                ranges.append([start_idx, start_idx + self.chunk_len])
-
-        for i, (s, e) in enumerate(ranges):
-            obss[i] = _obss[i, s:e, :]
-            acts[i] = _acts[i, s:e, :]
-            rews[i] = _rews[i, s:e, :]
-            hs[i] = _hs[i, s:e, :]
-            ss[i] = _ss[i, s:e, :]
-            mus[i] = _mus[i, s:e, :]
-            sigmas[i] = _sigmas[i, s:e, :]
-            assert (sigmas[i] == 0).sum() == 0
+        mask = torch.arange(start, end).repeat(self.batch_size, 1)
+        mask = (mask < seq_lengths).to(torch.float32).to(self.device)
+        mask = mask.reshape(*mask.shape, 1)
 
         return obss, acts, rews, hs, ss, mus, sigmas, mask
 
