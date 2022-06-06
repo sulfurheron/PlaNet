@@ -74,39 +74,43 @@ class Agent:
         L = self.latent_size
         H = self.hidden_size
 
-        self.traced_model = torch.jit.trace_module(
-            mod=self.model,
-            inputs={
-                'get_obs_reconstruction_loss': (
-                    torch.zeros(B, T, H, device=self.device),
-                    torch.zeros(B, T, L, device=self.device),
-                    torch.zeros(B, T, 64, 64, 3, device=self.device),
-                    torch.zeros(B, T, 1, device=self.device)
-                ),
-                'get_rew_reconstruction_loss': (
-                    torch.zeros(B, T, H, device=self.device),
-                    torch.zeros(B, T, L, device=self.device),
-                    torch.zeros(B, T, 1, device=self.device),
-                    torch.zeros(B, T, 1, device=self.device)
-                ),
-                'get_complexity_loss': (
-                    torch.zeros(B, T, H, device=self.device),
-                    torch.zeros(B, T, L, device=self.device),
-                    torch.zeros(B, T, L, device=self.device),
-                    torch.zeros(B, T, 1, device=self.device)
-                ),
-            }
-        )
+        # self.traced_model = torch.jit.trace_module(
+        #     mod=self.model,
+        #     inputs={
+        #         'get_obs_reconstruction_loss': (
+        #             torch.zeros(B, T, H, device=self.device),
+        #             torch.zeros(B, T, L, device=self.device),
+        #             torch.zeros(B, T, 64, 64, 3, device=self.device),
+        #             torch.zeros(B, T, 1, device=self.device)
+        #         ),
+        #         'get_rew_reconstruction_loss': (
+        #             torch.zeros(B, T, H, device=self.device),
+        #             torch.zeros(B, T, L, device=self.device),
+        #             torch.zeros(B, T, 1, device=self.device),
+        #             torch.zeros(B, T, 1, device=self.device)
+        #         ),
+        #         'get_complexity_loss': (
+        #             torch.zeros(B, T, H, device=self.device),
+        #             torch.zeros(B, T, L, device=self.device),
+        #             torch.zeros(B, T, L, device=self.device),
+        #             torch.zeros(B, T, 1, device=self.device)
+        #         ),
+        #     }
+        # )
 
     def fit_model(self):
         """Performs model fitting. Draws sequence chunks and updates."""
         obss, _, rews, hs, ss, mus, sigmas, mask = \
             self._sample_and_prepare_chunks()
 
-        loss = self.traced_model.get_obs_reconstruction_loss(hs, ss, obss, mask)
-        loss += self.traced_model.get_rew_reconstruction_loss(
+        # loss = self.traced_model.get_obs_reconstruction_loss(hs, ss, obss, mask)
+        # loss += self.traced_model.get_rew_reconstruction_loss(
+        #     hs, ss, rews, mask)
+        # loss -= 2 * self.traced_model.get_complexity_loss(hs, mus, sigmas, mask)
+        loss = self.model.get_obs_reconstruction_loss(hs, ss, obss, mask)
+        loss += self.model.get_rew_reconstruction_loss(
             hs, ss, rews, mask)
-        loss -= 2 * self.traced_model.get_complexity_loss(hs, mus, sigmas, mask)
+        loss -= 2 * self.model.get_complexity_loss(hs, mus, sigmas, mask)
 
         self.writer.add_scalar('Loss/train', -float(loss), self.tick)
         self.tick += 1
